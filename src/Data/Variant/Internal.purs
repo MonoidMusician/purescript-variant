@@ -75,8 +75,7 @@ class VariantRecordElim
     (variant ∷ # Type)
     (record ∷ # Type)
     result
-  | variant result → record
-  , record → variant result
+  | → record variant result
 instance variantRecordElim
   ∷ ( R.RowToList variant vlist
     , R.RowToList record rlist
@@ -92,7 +91,7 @@ class VariantMatch
     (vlist ∷ R.RowList)
     (rlist ∷ R.RowList)
     result
-  | vlist result → rlist
+  | vlist → rlist result
   , rlist → vlist result
 instance variantMatchNil
   ∷ VariantMatch R.Nil R.Nil r
