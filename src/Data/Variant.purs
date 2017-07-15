@@ -8,8 +8,6 @@ module Data.Variant
   , default
   , class VariantEqs, variantEqs
   , class VariantOrds, variantOrds
-  , class VariantRecordElim
-  , class VariantMatch
   , module Exports
   ) where
 
@@ -19,11 +17,10 @@ import Data.Maybe (Maybe(..), fromJust)
 import Data.Symbol (SProxy, class IsSymbol, reflectSymbol)
 import Data.Symbol (SProxy(..)) as Exports
 import Data.Tuple (Tuple(..))
-import Data.Variant.Internal (LProxy(..), class VariantTags, variantTags, VariantCase, lookupEq, lookupOrd)
+import Data.Variant.Internal (class VariantRecordElim, class VariantTags, LProxy(LProxy), VariantCase, lookupEq, lookupOrd, variantTags)
 import Partial.Unsafe (unsafeCrashWith, unsafePartial)
 import Type.Row as R
 import Unsafe.Coerce (unsafeCoerce)
-import Type.Row (class RowToList, class ListToRow)
 import Data.StrMap as SM
 
 foreign import data Variant ∷ # Type → Type
@@ -82,38 +79,6 @@ on p f g r =
 
   coerceR ∷ Variant r2 → Variant r1
   coerceR = unsafeCoerce
-
--- | Type class that matches a row for a `record` that will eliminate a row for
--- | a `variant`, producing a `result` of the specified type. Just a wrapper for
--- | `VariantMatch` to convert `RowToList` and vice versa.
-class VariantRecordElim
-    (variant ∷ # Type)
-    (record ∷ # Type)
-    result
-  | variant result → record
-  , record → variant result
-instance variantRecordElim
-  ∷ ( RowToList variant vlist
-    , RowToList record rlist
-    , VariantMatch vlist rlist result
-    , ListToRow vlist variant
-    , ListToRow rlist record )
-  ⇒ VariantRecordElim variant record result
-
--- | Checks that a `RowList` matches the argument to be given to the function
--- | in the other `RowList` with the same label, such that it will produce the
--- | result type.
-class VariantMatch
-    (vlist ∷ R.RowList)
-    (rlist ∷ R.RowList)
-    result
-  | vlist result → rlist
-  , rlist → vlist result
-instance variantMatchNil
-  ∷ VariantMatch R.Nil R.Nil r
-instance variantMatchCons
-  ∷ VariantMatch v r res
-  ⇒ VariantMatch (R.Cons sym a v) (R.Cons sym (a → res) r) res
 
 -- | Eliminate a `variant` with a `record` containing methods to handle each
 -- | case and produce a unified `result`.
