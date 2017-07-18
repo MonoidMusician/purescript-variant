@@ -30,6 +30,24 @@ bar = inj _bar "bar"
 baz ∷ ∀ r. Variant (baz ∷ Boolean | r)
 baz = inj _baz true
 
+elim_ = elim (foo :: Variant ( foo :: Int ))
+
+fooId = { foo: id }
+
+same0 = inj (SProxy :: SProxy "same0") 0
+same1 = inj (SProxy :: SProxy "same1") 1
+same2 = inj (SProxy :: SProxy "same2") 2
+
+--fid :: forall a. a -> a
+--fid :: Int -> Int
+fid = id
+
+sames =
+  { same0: fid
+  , same1: fid
+  , same2: fid
+  }
+
 test ∷ Eff (assert ∷ ASSERT) Unit
 test = do
   assert' "prj: Foo" $ prj _foo foo == Just 42
@@ -70,13 +88,20 @@ test = do
   assert' "compare: GT" $ compare (foo ∷ Variant TestVariants) bar == GT
 
   let
-    elim' :: Variant TestVariants -> String
-    elim' v = elim v
+    elim' = flip elim
       { foo: \a -> "foo: " <> show a
       , bar: \a -> "bar: " <> a
       , baz: \a -> "baz: " <> show a
       }
+    elimId :: Variant ( same0 :: Int, same1 :: Int, same2 :: Int) -> Int
+    elimId v = elim v sames
 
   assert' "elim': foo" $ elim' foo == "foo: 42"
   assert' "elim': bar" $ elim' bar == "bar: bar"
   assert' "elim': baz" $ elim' baz == "baz: true"
+  assert' "elimId: same0" $ elimId same0 == 0
+  assert' "elimId: same1" $ elimId same1 == 1
+  assert' "elimId: same2" $ elimId same2 == 2
+  assert' "elim_: show foo" $ elim_ { foo: show } == "42"
+  assert' "elim_: foo + 2" $ elim_ { foo: add 2 } == 44
+  assert' "elim_: foo id" $ elim_ { foo: id } == 42
