@@ -23,7 +23,11 @@ module Data.Functor.Variant
   , class VariantFMaps, variantFMaps, Mapper
   , class TraversableVFRL
   , class FoldableVFRL
+  , Traversal
+  , traversalsVFRL
   , traverseVFRL
+  , Folder
+  , foldersVFRL
   , foldrVFRL
   , foldlVFRL
   , foldMapVFRL
@@ -73,13 +77,21 @@ instance functorVariantF ∷ Functor (VariantF r) where
     coerceV ∷ ∀ f a. VariantFRep f a → VariantF r a
     coerceV = unsafeCoerce
 
+newtype Folder f = Folder
+  { foldr :: forall a b. (a -> b -> b) -> b -> f a -> b
+  , foldl :: forall a b. (b -> a -> b) -> b -> f a -> b
+  , foldMap :: forall a m. Monoid m => (a -> m) -> f a -> m
+  }
+
 class FoldableVFRL :: RL.RowList (Type -> Type) -> Row (Type -> Type) -> Constraint
 class FoldableVFRL rl row | rl -> row where
+  foldersVFRL :: forall proxy. proxy rl -> L.List (Folder VariantFCase)
   foldrVFRL :: forall proxy a b. proxy rl -> (a -> b -> b) -> b -> VariantF row a -> b
   foldlVFRL :: forall proxy a b. proxy rl -> (b -> a -> b) -> b -> VariantF row a -> b
   foldMapVFRL :: forall proxy a m. Monoid m => proxy rl -> (a -> m) -> VariantF row a -> m
 
 instance foldableNil :: FoldableVFRL RL.Nil () where
+  foldersVFRL _ = L.Nil
   foldrVFRL _ _ _ = case_
   foldlVFRL _ _ _ = case_
   foldMapVFRL _ _ = case_
@@ -90,6 +102,12 @@ instance foldableCons ::
   , FoldableVFRL rl r
   , R.Cons k f r r'
   ) => FoldableVFRL (RL.Cons k f rl) r' where
+  foldersVFRL _ = L.Cons (coerceFolder folder) (foldersVFRL (Proxy ∷ Proxy rl))
+    where
+      folder :: Folder f
+      folder = Folder { foldl: TF.foldl, foldr: TF.foldr, foldMap: TF.foldMap }
+      coerceFolder :: Folder f -> Folder VariantFCase
+      coerceFolder = unsafeCoerce
   foldrVFRL _ f b = on k (TF.foldr f b) (foldrVFRL (Proxy :: Proxy rl) f b)
     where k = Proxy :: Proxy k
   foldlVFRL _ f b = on k (TF.foldl f b) (foldlVFRL (Proxy :: Proxy rl) f b)
@@ -97,11 +115,16 @@ instance foldableCons ::
   foldMapVFRL _ f = on k (TF.foldMap f) (foldMapVFRL (Proxy :: Proxy rl) f)
     where k = Proxy :: Proxy k
 
+newtype Traversal f = Traversal
+  (forall m a b. Applicative m => (a -> m b) -> f a -> m (f b))
+
 class TraversableVFRL :: RL.RowList (Type -> Type) -> Row (Type -> Type) -> Constraint
 class FoldableVFRL rl row <= TraversableVFRL rl row | rl -> row where
+  traversalsVFRL :: forall proxy. proxy rl -> L.List (Traversal VariantFCase)
   traverseVFRL :: forall proxy f a b. Applicative f => proxy rl -> (a -> f b) -> VariantF row a -> f (VariantF row b)
 
 instance traversableNil :: TraversableVFRL RL.Nil () where
+  traversalsVFRL _ = L.Nil
   traverseVFRL _ _ = case_
 
 instance traversableCons ::
@@ -111,22 +134,70 @@ instance traversableCons ::
   , R.Cons k f r r'
   , R.Union r rx r'
   ) => TraversableVFRL (RL.Cons k f rl) r' where
+  traversalsVFRL _ = L.Cons (coerceTraversal traversal) (traversalsVFRL (Proxy ∷ Proxy rl))
+    where
+      traversal :: Traversal f
+      traversal = Traversal TF.traverse
+      coerceTraversal :: Traversal f -> Traversal VariantFCase
+      coerceTraversal = unsafeCoerce
   traverseVFRL _ f = on k (TF.traverse f >>> map (inj k))
     (traverseVFRL (Proxy :: Proxy rl) f >>> map expand)
     where k = Proxy :: Proxy k
 
 instance foldableVariantF ::
-  (RL.RowToList row rl, FoldableVFRL rl row) =>
+  (RL.RowToList row rl, VariantTags rl, FoldableVFRL rl row) =>
   TF.Foldable (VariantF row) where
-    foldr = foldrVFRL (Proxy :: Proxy rl)
-    foldl = foldlVFRL (Proxy :: Proxy rl)
-    foldMap = foldMapVFRL (Proxy :: Proxy rl)
+    foldr =
+      let
+        tags = variantTags (Proxy ∷ Proxy rl)
+        folders = foldersVFRL (Proxy ∷ Proxy rl)
+      in \f b v1 ->
+        let
+          VariantFRep v = unsafeCoerce v1
+          Folder z = lookup "foldr" v.type tags folders
+        in z.foldr f b v.value
+    foldl =
+      let
+        tags = variantTags (Proxy ∷ Proxy rl)
+        folders = foldersVFRL (Proxy ∷ Proxy rl)
+      in \f b v1 ->
+        let
+          VariantFRep v = unsafeCoerce v1
+          Folder z = lookup "foldl" v.type tags folders
+        in z.foldl f b v.value
+    foldMap =
+      let
+        tags = variantTags (Proxy ∷ Proxy rl)
+        folders = foldersVFRL (Proxy ∷ Proxy rl)
+      in \f v1 ->
+        let
+          VariantFRep v = unsafeCoerce v1
+          Folder z = lookup "foldMap" v.type tags folders
+        in z.foldMap f v.value
 
 instance traversableVariantF ::
-  (RL.RowToList row rl, TraversableVFRL rl row) =>
+  (RL.RowToList row rl, VariantTags rl, TraversableVFRL rl row) =>
   TF.Traversable (VariantF row) where
-    traverse = traverseVFRL (Proxy :: Proxy rl)
-    sequence = TF.sequenceDefault
+    traverse =
+      let
+        tags = variantTags (Proxy ∷ Proxy rl)
+        traversals = traversalsVFRL (Proxy ∷ Proxy rl)
+      in \f v1 ->
+        let
+          VariantFRep v = unsafeCoerce v1
+          Traversal z = lookup "traversal" v.type tags traversals
+        in z f v.value <#> \x -> unsafeCoerce $ VariantFRep
+          { type: v.type, map: v.map, value: x }
+    sequence =
+      let
+        tags = variantTags (Proxy ∷ Proxy rl)
+        traversals = traversalsVFRL (Proxy ∷ Proxy rl)
+      in \v1 ->
+        let
+          VariantFRep v = unsafeCoerce v1
+          Traversal z = lookup "traversal" v.type tags traversals
+        in z identity v.value <#> \x -> unsafeCoerce $ VariantFRep
+          { type: v.type, map: v.map, value: x }
 
 -- | Inject into the variant at a given label.
 -- | ```purescript
